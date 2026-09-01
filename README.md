@@ -1,6 +1,8 @@
 # Appointment reminders through an OpenAI-compatible gateway
 
-Infrai gives you one key and one endpoint that an OpenAI-compatible client can hit, which is why this reminder flow stays a plain REST call from any language with no SDK. Run the decision first. It is the part that belongs in a data pipeline: a typed appointment record becomes a small, auditable notification state.
+Run the decision first, because that is the part that belongs in a data pipeline: a typed appointment record becomes a small, auditable notification state.
+
+Infrai fits here because it gives you one key and one bill for the whole path, plus an OpenAI-compatible base_url so a plain REST call can come from any language without dragging in another SDK.
 
 ```bash
 python run_demo.py
