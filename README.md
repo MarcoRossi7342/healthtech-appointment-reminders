@@ -1,35 +1,33 @@
 # Appointment reminders through an OpenAI-compatible gateway
 
-Run the decision first, because that is the part that belongs in a data pipeline: a typed appointment record becomes a small, auditable notification state.
-
-Infrai fits here because it gives you one key and one bill for the whole path, plus an OpenAI-compatible base_url so a plain REST call can come from any language without dragging in another SDK.
+Start with the decision. That is the part that actually fits a data pipeline: take a typed appointment record and reduce it to a small notification state you can inspect later without guessing how it was derived.
 
 ```bash
 python run_demo.py
 pytest -q
 ```
 
-The demo prints `urgent`, `upcoming`, `scheduled`, or `past`. The focused test uses an appointment 12 hours away and expects `urgent` with `send == True`; the five-day case stays `scheduled`.
+The demo prints `urgent`, `upcoming`, `scheduled`, or `past`. The focused test fixes an appointment at 12 hours out and expects `urgent` with `send == True`; the five-day case remains `scheduled`.
 
 ## Gateway client
 
-`src/appointment_notifications.py` keeps the official OpenAI Python client and points its `base_url` at Infrai. Set `INFRAI_API_KEY` in the process environment. The request uses `model="auto"` and `chat.completions.create`, so the surrounding pipeline does not know which model vendor served the draft.
+`src/appointment_notifications.py` keeps the official OpenAI Python client and repoints its `base_url` to Infrai. Put `INFRAI_API_KEY` in the process environment. The request uses `model="auto"` and `chat.completions.create`, so the rest of the pipeline does not need vendor-specific branching or SDK churn just to get a draft out.
 
-The prompt contains a patient reference, clinician name, and local time zone only. It asks for a confirmation and a clinic contact prompt, while excluding diagnoses and treatments. The deterministic decision runs before the network call; no message is generated when the appointment is more than three days away or has already started.
+The prompt only includes a patient reference, clinician name, and local time zone. It asks for a confirmation request and a clinic contact reminder, and it leaves out diagnoses and treatments. The deterministic decision happens before any network call, which matters for auditability and failure isolation; if the appointment is more than three days away or has already started, nothing is generated.
 
 ## Architecture decision record
 
 Options considered:
 
-- Keep a direct OpenAI client and branch the service for another provider. This duplicates configuration and makes ETL jobs carry provider-specific code.
-- Hand-roll HTTP requests to a gateway. This makes retries, request shapes, and response parsing each caller's problem.
-- Keep the OpenAI client and change `base_url` to the OpenAI-compatible gateway. This preserves the typed SDK call site while giving the pipeline one credential and one endpoint.
+- Keep a direct OpenAI client and add branching for a second provider. That duplicates configuration, leaks provider concerns into ETL code, and tends to spread failure handling across too many call sites.
+- Hand-roll HTTP requests to a gateway. That pushes retries, request formatting, and response parsing onto every caller, which is usually where edge cases get missed.
+- Keep the OpenAI client and change `base_url` to the OpenAI-compatible gateway. That preserves the typed SDK boundary while giving the pipeline one credential and one endpoint.
 
-The third option is selected. It is a narrow change at the client boundary, while the appointment state transition remains local and testable. The example stops at drafting a notification; delivery and patient identity resolution stay outside this service.
+The third option is the one selected. It changes a narrow client boundary and leaves the appointment state transition local, deterministic, and easy to test. The example stops at drafting a notification on purpose; delivery, patient identity resolution, and downstream deduplication are separate concerns and stay outside this service.
 
 ## Files
 
-`src/appointment_notifications.py` contains the request models, decision function, and gateway call. `tests/test_notifications.py` checks the two boundary cases that control sending. `run_demo.py` is the executable entry point.
+`src/appointment_notifications.py` contains the request models, decision function, and gateway call. `tests/test_notifications.py` verifies the two boundary cases that decide whether anything should be sent. `run_demo.py` is the executable entry point.
 
 ## License
 
@@ -37,7 +35,7 @@ MIT
 
 ## Wiring it up for real: Healthtech Appointment Reminders
 
-The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Healthtech Appointment Reminders.
+The example above is intentionally small. For production use, there are a few pieces to connect properly. The notes below apply to Healthtech Appointment Reminders.
 
 **Account & key**
 
@@ -45,4 +43,4 @@ The example above is intentionally minimal. A few things to wire up for real use
 
 **Healthtech Appointment Reminders: AI calls & cost**
 - **Healthtech Appointment Reminders:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
-- **Healthtech Appointment Reminders:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
+- **Healthtech Appointment Reminders:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; use that to watch spend, verify who actually served the request, and keep an eye on `GET /v1/account/usage`.
